@@ -27,10 +27,125 @@ current_sound_playing = None  # Tracks which sound is currently playing
 collisions = 0  # Track number of collisions
 last_collision_time = 0  # Track when the last collision occurred
 collision_flash = False  # Flag for visual feedback on collision
+sound_muted = False  # Flag to track if sound is muted
+mute_button_rect = pygame.Rect(20, 550, 40, 40)  # Position and size of mute button
+braking = False  # Flag to indicate if braking is in progress
+brake_start_time = 0  # When braking began
+original_brake_speed = 0  # Speed before braking started
+
+# Function to detect if thumb is hidden in a fist
+def is_thumb_hidden(landmarks):
+    """
+    Detect if the thumb is hidden in a fist by checking:
+    1. All fingertips are close to the palm
+    2. The thumb tip is not visible or is very close to the side of the palm
+    """
+    if len(landmarks) < 21:  # Make sure we have all landmarks
+        return False
+    
+    # Get key landmark positions
+    thumb_tip = landmarks[4]
+    index_tip = landmarks[8]
+    middle_tip = landmarks[12]
+    ring_tip = landmarks[16]
+    pinky_tip = landmarks[20]
+    wrist = landmarks[0]
+    palm_center = landmarks[9]  # Middle of palm
+    
+    # Calculate distances from fingertips to palm center
+    thumb_palm_dist = calculate_distance(thumb_tip, palm_center)
+    index_palm_dist = calculate_distance(index_tip, palm_center)
+    middle_palm_dist = calculate_distance(middle_tip, palm_center)
+    ring_palm_dist = calculate_distance(ring_tip, palm_center)
+    pinky_palm_dist = calculate_distance(pinky_tip, palm_center)
+    
+    # Calculate palm size to normalize distances (distance from wrist to middle finger base)
+    palm_size = calculate_distance(wrist, landmarks[9])
+    
+    # Normalize distances by palm size
+    norm_thumb_dist = thumb_palm_dist / palm_size
+    norm_index_dist = index_palm_dist / palm_size
+    norm_middle_dist = middle_palm_dist / palm_size
+    norm_ring_dist = ring_palm_dist / palm_size
+    norm_pinky_dist = pinky_palm_dist / palm_size
+    
+    # Calculate thumb visibility
+    thumb_side_dist = calculate_distance(thumb_tip, landmarks[1])  # Distance to side of palm
+    norm_thumb_side_dist = thumb_side_dist / palm_size
+    
+    # Conditions for a closed fist with hidden thumb:
+    # 1. All fingers are close to palm (closed fist)
+    fingers_closed = (
+        norm_index_dist < 0.5 and
+        norm_middle_dist < 0.5 and
+        norm_ring_dist < 0.5 and
+        norm_pinky_dist < 0.5
+    )
+    
+    # 2. Thumb is very close to side of palm or hidden
+    thumb_hidden = norm_thumb_side_dist < 0.3 or norm_thumb_dist < 0.3
+    
+    return fingers_closed and thumb_hidden
+
+# Function to detect if hand is making a stop sign gesture (palm facing camera)
+def is_stop_gesture(landmarks):
+    """
+    Detect if the hand is making a stop sign gesture (palm facing camera with fingers extended)
+    
+    A stop sign gesture is characterized by:
+    1. All fingers are extended and visible
+    2. Fingers are spread apart reasonably
+    3. Palm is facing the camera (based on relative positions of landmarks)
+    """
+    if len(landmarks) < 21:  # Make sure we have all landmarks
+        return False
+    
+    # Get key landmark positions
+    wrist = landmarks[0]
+    thumb_tip = landmarks[4]
+    index_tip = landmarks[8]
+    middle_tip = landmarks[12]
+    ring_tip = landmarks[16]
+    pinky_tip = landmarks[20]
+    
+    # Get finger middle points (for calculating palm orientation)
+    index_pip = landmarks[6]  # Middle point of index finger
+    pinky_pip = landmarks[18]  # Middle point of pinky finger
+    
+    # Calculate palm size to normalize distances
+    palm_width = calculate_distance(landmarks[5], landmarks[17])  # Distance between index and pinky MCP
+    
+    # Check if all fingers are extended (distance from fingertip to wrist should be significant)
+    thumb_extended = calculate_distance(thumb_tip, wrist) > 0.5 * palm_width
+    index_extended = calculate_distance(index_tip, wrist) > 0.8 * palm_width
+    middle_extended = calculate_distance(middle_tip, wrist) > 0.8 * palm_width
+    ring_extended = calculate_distance(ring_tip, wrist) > 0.7 * palm_width
+    pinky_extended = calculate_distance(pinky_tip, wrist) > 0.6 * palm_width
+    
+    fingers_extended = thumb_extended and index_extended and middle_extended and ring_extended and pinky_extended
+    
+    # Check if fingers are spread apart (not in a fist)
+    index_middle_spread = calculate_distance(index_tip, middle_tip) > 0.2 * palm_width
+    middle_ring_spread = calculate_distance(middle_tip, ring_tip) > 0.2 * palm_width
+    ring_pinky_spread = calculate_distance(ring_tip, pinky_tip) > 0.2 * palm_width
+    
+    fingers_spread = index_middle_spread and middle_ring_spread and ring_pinky_spread
+    
+    # Check if palm is facing the camera
+    # For palm facing camera, the distance between index and pinky PIPs should be significant
+    # compared to when the palm is sideways
+    palm_facing = calculate_distance(index_pip, pinky_pip) > 0.6 * palm_width
+    
+    # Return True if all conditions are met
+    return fingers_extended and fingers_spread and palm_facing
+
+# Function to calculate distance between two points
+def calculate_distance(point1, point2):
+    return np.sqrt((point1[0] - point2[0])**2 + (point1[1] - point2[1])**2)
 
 # Function to detect hand gestures
 def detect_hand_gestures(frame):
-    global car_speed, car_direction, last_hand_detection_time, auto_stopping, auto_stop_start_time
+    global car_speed, car_direction, last_hand_detection_time, auto_stopping, auto_stop_start_time, braking, brake_start_time, original_brake_speed
     
     # Convert image to RGB (required by mediapipe)
     frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
@@ -58,41 +173,72 @@ def detect_hand_gestures(frame):
             cx, cy = int(lm.x * w), int(lm.y * h)
             landmarks.append([cx, cy])
         
-        # Set car speed based on thumb position (Y-axis)
-        # The higher the thumb, the greater the speed
-        thumb_tip = landmarks[4]
-        wrist = landmarks[0]
-        
-        # Calculate speed with higher sensitivity
-        distance = wrist[1] - thumb_tip[1]  # Distance between thumb and wrist
-        
-        # Increase sensitivity with a factor of 2.5 instead of 200
-        speed_factor = distance / 80  
-        
-        # Limit speed to range 0-5, with minimum threshold
-        car_speed = max(0, min(5, speed_factor))
-        
-        # Set direction based on hand angle
-        index_tip = landmarks[8]  # Index finger tip
-        pinky_tip = landmarks[20]  # Pinky finger tip
-        
-        # Calculate difference on X-axis to determine direction
-        direction_delta = index_tip[0] - pinky_tip[0]
-        
-        if direction_delta > 30:
-            car_direction = 1  # Right
-        elif direction_delta < -30:
-            car_direction = -1  # Left
+        # Check for stop gesture (palm facing camera)
+        if is_stop_gesture(landmarks) and car_speed > 0.1:
+            # If not already braking, start braking process
+            if not braking:
+                braking = True
+                brake_start_time = time.time()
+                original_brake_speed = car_speed
+                print("Braking initiated - stop gesture detected")
+                
+            # Display stop gesture notification
+            cv2.putText(frame, "STOP GESTURE DETECTED! BRAKING!", (50, 250), 
+                        cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
         else:
-            car_direction = 0  # Straight
-        
-        # Add text to display speed and direction
-        cv2.putText(frame, f"Speed: {car_speed:.1f}", (50, 50), 
-                    cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
-        
-        direction_text = "Left" if car_direction == -1 else "Right" if car_direction == 1 else "Forward"
-        cv2.putText(frame, f"Direction: {direction_text}", (50, 100), 
-                    cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+            # Check for thumb hidden in fist (alternative braking method)
+            is_braking_fist = is_thumb_hidden(landmarks)
+            
+            if is_braking_fist and car_speed > 0.1:
+                # If not already braking, start braking process
+                if not braking:
+                    braking = True
+                    brake_start_time = time.time()
+                    original_brake_speed = car_speed
+                    print("Braking initiated - thumb hidden in fist")
+                    
+                # Display braking notification
+                cv2.putText(frame, "BRAKING!", (50, 250), 
+                            cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
+            elif not is_braking_fist and not is_stop_gesture(landmarks):
+                # If no braking gesture is detected, stop braking
+                braking = False
+                
+                # Set car speed based on thumb position (Y-axis)
+                # The higher the thumb, the greater the speed
+                thumb_tip = landmarks[4]
+                wrist = landmarks[0]
+                
+                # Calculate speed with higher sensitivity
+                distance = wrist[1] - thumb_tip[1]  # Distance between thumb and wrist
+                
+                # Increase sensitivity with a factor of 2.5 instead of 200
+                speed_factor = distance / 80  
+                
+                # Limit speed to range 0-5, with minimum threshold
+                car_speed = max(0, min(5, speed_factor))
+                
+                # Set direction based on hand angle
+                index_tip = landmarks[8]  # Index finger tip
+                pinky_tip = landmarks[20]  # Pinky finger tip
+                
+                # Calculate difference on X-axis to determine direction
+                direction_delta = index_tip[0] - pinky_tip[0]
+                
+                if direction_delta > 30:
+                    car_direction = 1  # Right
+                elif direction_delta < -30:
+                    car_direction = -1  # Left
+                else:
+                    car_direction = 0  # Straight
+                
+                # Add text to display speed and direction
+                cv2.putText(frame, f"Speed: {car_speed:.1f}", (50, 50), 
+                            cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+                
+                direction_text = "Left" if car_direction == -1 else "Right" if car_direction == 1 else "Forward"
+                cv2.putText(frame, f"Direction: {direction_text}", (50, 100), 
+                            cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
     else:
         # Check if no hand has been detected for more than 3 seconds
         current_time = time.time()
@@ -109,8 +255,25 @@ def detect_hand_gestures(frame):
             auto_stopping = True
             auto_stop_start_time = current_time
     
-    # Handle auto-stopping if needed
-    if auto_stopping:
+    # Handle braking if needed
+    if braking:
+        current_time = time.time()
+        brake_duration = 1.5  # 1.5 seconds to come to a complete stop
+        elapsed_time = current_time - brake_start_time
+        
+        if elapsed_time >= brake_duration:
+            # Car has completely stopped
+            car_speed = 0
+            braking = False
+        else:
+            # Gradually decrease speed over 1.5 seconds
+            # Calculate deceleration factor (0 to 1)
+            deceleration_factor = elapsed_time / brake_duration
+            # Apply gradual speed reduction
+            car_speed = original_brake_speed * (1 - deceleration_factor)
+    
+    # Handle auto-stopping if needed (only if not already braking)
+    if auto_stopping and not braking:
         current_time = time.time()
         stop_duration = 2.0  # 2 seconds to come to a complete stop
         elapsed_time = current_time - auto_stop_start_time
@@ -225,7 +388,15 @@ def file_exists(file_path):
 
 # Function to update engine sound based on car speed
 def update_engine_sound():
-    global engine_sound, car_speed, diesel_idle_sound, diesel_revving_sound, current_sound_playing
+    global engine_sound, car_speed, diesel_idle_sound, diesel_revving_sound, current_sound_playing, sound_muted, braking
+    
+    # If sound is muted or no sounds are loaded, return
+    if sound_muted or (not diesel_idle_sound and not diesel_revving_sound):
+        # If sound is muted and sounds are playing, stop them
+        if sound_muted and pygame.mixer.get_busy() and current_sound_playing:
+            current_sound_playing.stop()
+            current_sound_playing = None
+        return
     
     # Import time explicitly to avoid conflicts with numpy
     import time as py_time
@@ -253,6 +424,10 @@ def update_engine_sound():
         # More realistic pitch curve - non-linear increase with speed
         target_pitch = 0.8 + (car_speed / 5.0) * (1.0 + car_speed * 0.2)
     
+    # Add braking sound effect - reduce volume during braking
+    if braking and target_sound == diesel_revving_sound:
+        target_volume = max(0.3, target_volume * 0.7)
+        
     # If car is completely stopped, fade out any playing sound
     if car_speed <= 0.1:
         if pygame.mixer.get_busy():
@@ -309,6 +484,53 @@ def draw_road_objects(screen):
             ]
             pygame.draw.polygon(screen, obj['color'], points)
 
+# Function to draw mute button
+def draw_mute_button(screen):
+    global sound_muted, mute_button_rect
+    
+    # Draw button background
+    button_color = (200, 50, 50) if sound_muted else (50, 200, 50)
+    pygame.draw.rect(screen, button_color, mute_button_rect)
+    pygame.draw.rect(screen, (0, 0, 0), mute_button_rect, 2)  # Black border
+    
+    # Draw speaker icon
+    speaker_color = (255, 255, 255)  # White icon
+    
+    # Draw speaker base
+    pygame.draw.rect(screen, speaker_color, 
+                    (mute_button_rect.left + 10, mute_button_rect.top + 15, 8, 10))
+    
+    # Draw speaker cone
+    points = [
+        (mute_button_rect.left + 18, mute_button_rect.top + 10),
+        (mute_button_rect.left + 28, mute_button_rect.top + 5),
+        (mute_button_rect.left + 28, mute_button_rect.top + 35),
+        (mute_button_rect.left + 18, mute_button_rect.top + 30)
+    ]
+    pygame.draw.polygon(screen, speaker_color, points)
+    
+    # Draw X over speaker if muted
+    if sound_muted:
+        pygame.draw.line(screen, (255, 0, 0), 
+                        (mute_button_rect.left + 8, mute_button_rect.top + 8),
+                        (mute_button_rect.left + 32, mute_button_rect.top + 32), 3)
+        pygame.draw.line(screen, (255, 0, 0), 
+                        (mute_button_rect.left + 32, mute_button_rect.top + 8),
+                        (mute_button_rect.left + 8, mute_button_rect.top + 32), 3)
+
+# Function to check if mouse clicked on mute button
+def check_mute_button_click(pos):
+    global sound_muted, mute_button_rect
+    
+    if mute_button_rect.collidepoint(pos):
+        sound_muted = not sound_muted
+        
+        # If unmuting and car is moving, restart engine sound
+        if not sound_muted and car_speed > 0.1:
+            update_engine_sound()
+        return True
+    return False
+
 # Function to display the car on pygame screen
 def draw_car(screen):
     # Draw simple car using a rectangle
@@ -336,7 +558,7 @@ def draw_car(screen):
 
 # Main function
 def main(camera_index=0):
-    global engine_sound, diesel_idle_sound, diesel_revving_sound, current_sound_playing
+    global engine_sound, diesel_idle_sound, diesel_revving_sound, current_sound_playing, sound_muted
     
     # Import time module explicitly to avoid conflicts with numpy
     import time as py_time
@@ -618,6 +840,10 @@ def main(camera_index=0):
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
+            elif event.type == pygame.MOUSEBUTTONDOWN:
+                # Check if mute button was clicked
+                if check_mute_button_click(event.pos):
+                    print(f"Sound {'muted' if sound_muted else 'unmuted'}")
         
         # Read frame from webcam
         ret, frame = cap.read()
@@ -677,6 +903,19 @@ def main(camera_index=0):
         score = max(0, objects_passed - collisions * 2)  # Collisions count double negative
         score_text = font.render(f"Score: {score}", True, (0, 0, 255))
         screen.blit(score_text, (50, 200))
+        
+        # Draw mute button
+        draw_mute_button(screen)
+        
+        # Display text label for mute button
+        font = pygame.font.SysFont(None, 24)
+        mute_label = font.render("Sound", True, (0, 0, 0))
+        screen.blit(mute_label, (mute_button_rect.left - 5, mute_button_rect.bottom + 5))
+        
+        # Display braking status if active
+        if braking:
+            brake_text = font.render("BRAKING!", True, (255, 0, 0))
+            screen.blit(brake_text, (50, 250))
         
         # Display webcam frame in separate window
         cv2.imshow("Hand Gesture Detection", frame)
