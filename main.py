@@ -383,6 +383,19 @@ class HandGestureCarControl:
         if hasattr(self, 'cap') and self.cap is not None:
             self.cap.release()
 
+class RoadObjects:
+    # ...existing code...
+    
+    def update(self, car):
+        collision = False
+        objects_passed = 0
+        
+        # Your existing update logic here...
+        # ...existing code...
+        
+        # Before any return statement, ensure we return the required values
+        return collision, objects_passed
+
 if __name__ == "__main__":
     app = HandGestureCarControl()
     app.run()

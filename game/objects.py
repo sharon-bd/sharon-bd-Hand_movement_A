@@ -171,6 +171,31 @@ class RoadObjectManager:
         self.power_up_chance = 0.3  # 30% chance of power-up instead of obstacle
         self.last_spawn_time = 0
         self.min_spawn_interval = 0.5  # Minimum time between spawns in seconds
+        self.active_camera = 0  # Default to first camera (index 0)
+    
+    def set_active_camera(self, camera_index):
+        """
+        Set which camera to use as the active one.
+        
+        Args:
+            camera_index (int): Index of the camera to use (0 or 1)
+        
+        Returns:
+            bool: True if camera switch was successful, False otherwise
+        """
+        if camera_index in [0, 1]:
+            self.active_camera = camera_index
+            return True
+        return False
+    
+    def get_active_camera(self):
+        """
+        Get the currently active camera index.
+        
+        Returns:
+            int: Index of the currently active camera (0 or 1)
+        """
+        return self.active_camera
     
     def update(self, car):
         """Update all road objects and check for collisions."""
@@ -225,4 +250,13 @@ class RoadObjectManager:
                 obj.passed = True
                 objects_passed += 1
             
-            # Remove objects that exit the screen
+          # Remove objects that exit the screen
+            if obj.y > 650:
+                self.objects.remove(obj)
+        
+        return collision_occurred, objects_passed
+        
+    def draw(self, screen):
+        """Draw all road objects on the screen."""
+        for obj in self.objects:
+            obj.draw(screen)
