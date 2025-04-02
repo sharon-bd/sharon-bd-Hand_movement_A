@@ -40,6 +40,7 @@ def is_thumb_hidden(landmarks):
     1. All fingertips are close to the palm
     2. The thumb tip is not visible or is very close to the side of the palm
     """
+    
     if len(landmarks) < 21:  # Make sure we have all landmarks
         return False
     
