@@ -33,8 +33,11 @@ def select_camera(available_cameras):
         print(f"Only one camera found (index {available_cameras[0]}), using it automatically.")
         return available_cameras[0]
     
-    # Initialize pygame for camera selection screen
-    pygame.init()
+    # Initialize pygame for camera selection screen if not already initialized
+    screen_active = pygame.get_init()
+    if not screen_active:
+        pygame.init()
+    
     screen = pygame.display.set_mode((800, 600))
     pygame.display.set_caption("Camera Selection")
     font_title = pygame.font.SysFont(None, 48)
@@ -59,6 +62,7 @@ def select_camera(available_cameras):
     # Main selection loop
     clock = pygame.time.Clock()
     running = True
+    selected_camera = None
     
     while running:
         mouse_pos = pygame.mouse.get_pos()
@@ -66,7 +70,7 @@ def select_camera(available_cameras):
         
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
-                return None  # Exit camera selection
+                running = False
             if event.type == pygame.MOUSEBUTTONDOWN:
                 if event.button == 1:  # Left click
                     mouse_clicked = True
@@ -75,8 +79,9 @@ def select_camera(available_cameras):
         for button in buttons:
             button['hover'] = button['rect'].collidepoint(mouse_pos)
             if button['hover'] and mouse_clicked:
-                pygame.quit()
-                return button['index']  # Return selected camera index
+                selected_camera = button['index']  # Get selected camera index
+                running = False
+                break
         
         # Draw selection screen
         screen.fill((240, 240, 255))  # Light blue background
@@ -106,9 +111,8 @@ def select_camera(available_cameras):
         pygame.display.flip()
         clock.tick(60)
     
-    # If the loop exits without selection, use first camera
-    pygame.quit()
-    return available_cameras[0] if available_cameras else None
+    # Return the selected camera or default to first one
+    return selected_camera if selected_camera is not None else (available_cameras[0] if available_cameras else None)
 
 def test_camera(camera_index):
     """Test if a camera works by displaying a preview window."""

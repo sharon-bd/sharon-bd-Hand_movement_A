@@ -17,6 +17,7 @@ from game.car import Car
 from game.objects import RoadObjectManager
 from utils.sound import SoundManager
 from utils.ui import GameUI
+from game_ui import GameUI
 
 class HandGestureCarControl:
     def __init__(self):
@@ -423,6 +424,47 @@ class RoadObjects:
         # Before any return statement, ensure we return the required values
         return collision, objects_passed
 
+def main():
+    # Initialize pygame
+    pygame.init()
+    
+    # Set up the display
+    screen_width, screen_height = 800, 600
+    screen = pygame.display.set_mode((screen_width, screen_height))
+    pygame.display.set_caption("Hand Movement Game")
+    
+    # Create game UI
+    game_ui = GameUI(screen, screen_width, screen_height)
+    
+    # Game states
+    game_running = False
+    
+    # Main game loop
+    while True:
+        screen.fill((240, 240, 240))  # Light gray background
+        
+        # Event handling
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                pygame.quit()
+                sys.exit()
+            elif event.type == pygame.MOUSEBUTTONDOWN:
+                if event.button == 1:  # Left mouse button
+                    action = game_ui.check_button_click(event.pos)
+                    if action == 'run_game':
+                        game_running = True
+                        print("Game started!")
+        
+        # Draw UI elements
+        game_ui.draw_buttons()
+        
+        # If game is running, draw game elements
+        if game_running:
+            # Game logic here
+            pass
+        
+        pygame.display.flip()
+        pygame.time.Clock().tick(60)
+
 if __name__ == "__main__":
-    app = HandGestureCarControl()
-    app.run()
+    main()
