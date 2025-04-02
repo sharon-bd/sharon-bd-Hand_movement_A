@@ -84,6 +84,12 @@ class HandGestureCarControl:
         
         print(f"Using camera index {selected_camera}")
         
+        # Reinitialize pygame to ensure display is active
+        pygame.quit()
+        pygame.init()
+        self.screen = pygame.display.set_mode((self.screen_width, self.screen_height))
+        pygame.display.set_caption("Hand Gesture Car Control")
+        
     def run(self):
         """Main application loop."""
         running = True
