@@ -1,0 +1,1 @@
+# Hand detector package initialization
