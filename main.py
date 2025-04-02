@@ -52,18 +52,36 @@ class HandGestureCarControl:
         time.sleep(1)  # Show ready message briefly
     
     def init_camera(self):
-        """Initialize the camera capture."""
-        for i in range(3):  # Try a few camera indices
-            cap = cv2.VideoCapture(i)
-            if cap.isOpened():
-                print(f"Camera index {i} is working")
-                self.cap = cap  # Store the camera object in self.cap
-                break
-            cap.release()
+        """Initialize the camera capture using camera selection interface."""
+        # Find available cameras
+        available_cameras = find_available_cameras()
+        print(f"Available camera indices: {available_cameras}")
         
-        if self.cap is None:
-            print("No working camera found!")
+        if not available_cameras:
+            message = "No cameras available. Please connect a webcam and try again."
+            print(message)
+            self.show_error("No Cameras Found", message)
+            pygame.quit()
             sys.exit(1)
+        
+        # Let user select a camera
+        selected_camera = select_camera(available_cameras)
+        if selected_camera is None:
+            message = "No camera selected. Exiting."
+            print(message)
+            pygame.quit()
+            sys.exit(1)
+        
+        # Initialize the selected camera
+        self.cap = cv2.VideoCapture(selected_camera)
+        if not self.cap.isOpened():
+            message = f"Failed to open camera {selected_camera}. Please try another camera."
+            print(message)
+            self.show_error("Camera Error", message)
+            pygame.quit()
+            sys.exit(1)
+        
+        print(f"Using camera index {selected_camera}")
         
     def run(self):
         """Main application loop."""
@@ -134,6 +152,15 @@ class HandGestureCarControl:
                     # Quit to main menu if paused
                     self.game_active = False
                     return True
+            
+            # Handle mouse clicks
+            if event.type == pygame.MOUSEBUTTONDOWN:
+                if event.button == 1:  # Left click
+                    # Check if mute button was clicked
+                    if self.game_ui.check_mute_button_click(event.pos):
+                        # Update sound manager's mute state to match UI
+                        self.sound_manager.set_mute(self.game_ui.sound_muted)
+                        print(f"Sound {'muted' if self.game_ui.sound_muted else 'unmuted'}")
         
         # If paused, show pause menu and don't update game state
         if self.paused:

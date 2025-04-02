@@ -271,3 +271,16 @@ class SoundManager:
         
         # Restart idle sound
         self.engine_idle.play(-1)
+    
+    def set_mute(self, muted):
+        """Set whether sound is muted."""
+        if muted and self.current_engine_state != "muted":
+            # Stop all sounds if muting
+            self.engine_idle.stop()
+            self.engine_revving.stop()
+            self.engine_boost.stop()
+            self.current_engine_state = "muted"
+        elif not muted and self.current_engine_state == "muted":
+            # Restart sound if unmuting
+            self.current_engine_state = "idle"
+            self.engine_idle.play(-1)
