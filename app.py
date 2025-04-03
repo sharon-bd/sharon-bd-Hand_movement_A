@@ -391,11 +391,10 @@ def file_exists(file_path):
 def update_engine_sound():
     global engine_sound, car_speed, diesel_idle_sound, diesel_revving_sound, current_sound_playing, sound_muted, braking
     
-    # If sound is muted or no sounds are loaded, return
-    if sound_muted or (not diesel_idle_sound and not diesel_revving_sound):
-        # If sound is muted and sounds are playing, stop them
-        if sound_muted and pygame.mixer.get_busy() and current_sound_playing:
-            current_sound_playing.stop()
+    # If sound is muted, stop any playing sounds and return early
+    if sound_muted:
+        if pygame.mixer.get_busy():
+            pygame.mixer.stop()
             current_sound_playing = None
         return
     
@@ -408,7 +407,7 @@ def update_engine_sound():
     
     # Print debug info periodically (every ~5 seconds)
     if int(py_time.time()) % 5 == 0:
-        print(f"Debug - Speed: {car_speed:.1f}, Sound playing: {pygame.mixer.get_busy()}")
+        print(f"Debug - Speed: {car_speed:.1f}, Sound playing: {pygame.mixer.get_busy()}, Muted: {sound_muted}")
         
     # Determine which sound to play based on car speed
     if car_speed <= 0.5:
@@ -433,8 +432,12 @@ def update_engine_sound():
     if car_speed <= 0.1:
         if pygame.mixer.get_busy():
             # Just reduce volume instead of stopping
-            if current_sound_playing:
+            if current_sound_playing and not sound_muted:
                 current_sound_playing.set_volume(0.2)
+        return
+    
+    # Only proceed with sound if not muted
+    if sound_muted:
         return
     
     # Check if sound is playing and needs to be changed
@@ -455,7 +458,7 @@ def update_engine_sound():
     try:
         if current_sound_playing and pygame.mixer.get_busy():
             current_sound_playing.set_volume(target_volume)
-        elif car_speed > 0.1 and current_sound_playing and not pygame.mixer.get_busy():
+        elif car_speed > 0.1 and current_sound_playing and not pygame.mixer.get_busy() and not sound_muted:
             # If sound should be playing but isn't, restart it
             current_sound_playing.play(-1)
             print("Restarting engine sound that stopped unexpectedly")
@@ -521,14 +524,27 @@ def draw_mute_button(screen):
 
 # Function to check if mouse clicked on mute button
 def check_mute_button_click(pos):
-    global sound_muted, mute_button_rect
+    global sound_muted, mute_button_rect, diesel_idle_sound, diesel_revving_sound, current_sound_playing, car_speed
     
     if mute_button_rect.collidepoint(pos):
         sound_muted = not sound_muted
         
-        # If unmuting and car is moving, restart engine sound
-        if not sound_muted and car_speed > 0.1:
-            update_engine_sound()
+        # When muting, stop all sounds immediately
+        if sound_muted:
+            pygame.mixer.stop()
+            current_sound_playing = None
+            print("Sound muted - stopping all sounds")
+        # When unmuting, restart the appropriate sound based on car speed
+        elif not sound_muted and car_speed > 0.1:
+            print("Sound unmuted - restarting engine sound")
+            if car_speed <= 0.5 and diesel_idle_sound:
+                diesel_idle_sound.play(-1)
+                current_sound_playing = diesel_idle_sound
+            elif car_speed > 0.5 and diesel_revving_sound:
+                diesel_revving_sound.play(-1)
+                current_sound_playing = diesel_revving_sound
+        
+        print(f"Sound {'muted' if sound_muted else 'unmuted'}")
         return True
     return False
 
@@ -561,6 +577,9 @@ def draw_car(screen):
 def main(camera_index=0):
     global engine_sound, diesel_idle_sound, diesel_revving_sound, current_sound_playing, sound_muted
     
+    # Initialize sound_muted to False explicitly
+    sound_muted = False
+    
     # Import time module explicitly to avoid conflicts with numpy
     import time as py_time
     
@@ -575,8 +594,8 @@ def main(camera_index=0):
         print("Sound mixer initialized successfully with advanced settings")
     except Exception as e:
         print(f"Error initializing advanced sound mixer: {e}")
+        # Fallback to basic sound initialization
         try:
-            # Fallback to basic sound initialization
             pygame.mixer.init()
             print("Sound mixer initialized with default settings")
         except Exception as e:
@@ -601,7 +620,7 @@ def main(camera_index=0):
         os.path.join(os.path.dirname(os.path.abspath(__file__)), 'sounds', ''),
         'c:\\Users\\Sharon\\JohnBryce-python\\Project2\\Hand_movement\\',
         'c:\\Users\\Sharon\\JohnBryce-python\\Project2\\Hand_movement\\sounds\\',
-        '.\\', 
+        '.\\',
         '.\\sounds\\'
     ]
     
@@ -659,7 +678,6 @@ def main(camera_index=0):
             sample_rate = 44100
             duration = 1.0  # 1 second of sound
             t = np.linspace(0, duration, int(sample_rate * duration), False)
-            
             # Base frequency for idle (higher for gasoline sound)
             base_freq = 120  # Higher pitch for gasoline engines
             
@@ -668,7 +686,6 @@ def main(camera_index=0):
             
             # Add fundamental frequency
             signal += 0.3 * np.sin(2 * np.pi * base_freq * t)
-            
             # Add harmonics with different amplitudes - more high-frequency content for gasoline
             signal += 0.25 * np.sin(2 * np.pi * (base_freq * 2) * t)
             signal += 0.2 * np.sin(2 * np.pi * (base_freq * 3) * t)
@@ -724,7 +741,6 @@ def main(camera_index=0):
             sample_rate = 44100
             duration = 1.0
             t = np.linspace(0, duration, int(sample_rate * duration), False)
-            
             # Base frequency for revving (higher than idle - gasoline engines rev higher)
             base_freq = 180
             
@@ -797,33 +813,6 @@ def main(camera_index=0):
     
     if not diesel_idle_sound and not diesel_revving_sound:
         print("WARNING: Could not load or create any sound files. Sound will be disabled.")
-        print("Check if pygame.mixer is properly initialized and sound files exist.")
-        print("Make sure your system's audio is not muted and volume is turned up.")
-    else:
-        # Test sound playback
-        if diesel_idle_sound:
-            try:
-                diesel_idle_sound.play()
-                print("⚠️ CHECK YOUR SPEAKERS NOW - Gasoline idle sound test playing for 1 second! ⚠️")
-                # Use imported time module to avoid numpy conflict
-                py_time.sleep(1.0)
-                diesel_idle_sound.stop()
-                print("Gasoline idle sound test completed!")
-            except Exception as e:
-                print(f"Sound test failed for idle: {e}")
-                diesel_idle_sound = None
-                
-        if diesel_revving_sound:
-            try:
-                diesel_revving_sound.play()
-                print("⚠️ CHECK YOUR SPEAKERS NOW - Gasoline revving sound test playing for 1 second! ⚠️")
-                # Use imported time module to avoid numpy conflict
-                py_time.sleep(1.0)
-                diesel_revving_sound.stop()
-                print("Gasoline revving sound test completed!")
-            except Exception as e:
-                print(f"Sound test failed for revving: {e}")
-                diesel_revving_sound = None
     
     # Initialize webcam with selected index
     cap = cv2.VideoCapture(camera_index)
@@ -844,7 +833,7 @@ def main(camera_index=0):
             elif event.type == pygame.MOUSEBUTTONDOWN:
                 # Check if mute button was clicked
                 if check_mute_button_click(event.pos):
-                    print(f"Sound {'muted' if sound_muted else 'unmuted'}")
+                    print(f"Sound state changed: {'MUTED' if sound_muted else 'UNMUTED'}")
         
         # Read frame from webcam
         ret, frame = cap.read()
@@ -921,12 +910,18 @@ def main(camera_index=0):
         # Display webcam frame in separate window
         cv2.imshow("Hand Gesture Detection", frame)
         
+        # Update pygame screen
         # Force sound update periodically to ensure continuous playback
         # Use the explicitly imported time module
         if int(py_time.time()) % 2 == 0 and car_speed > 0.1:
             if current_sound_playing and not pygame.mixer.get_busy():
                 print("Forcing sound restart - sound stopped unexpectedly")
                 current_sound_playing.play(-1)
+        
+        # Add debug text for mute state on screen
+        font = pygame.font.SysFont(None, 24)
+        mute_status = font.render(f"Sound: {'MUTED' if sound_muted else 'ON'}", True, (255, 0, 0) if sound_muted else (0, 128, 0))
+        screen.blit(mute_status, (mute_button_rect.left + 45, mute_button_rect.top + 10))
         
         # Update pygame screen
         pygame.display.flip()
