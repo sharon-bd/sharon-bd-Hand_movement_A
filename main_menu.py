@@ -75,8 +75,11 @@ class MainMenu:
             )
         
         # Start game button (positioned below mode buttons)
-        last_y = button_start_y + len(config.GAME_MODES) * (button_height + button_spacing) + 20
-        print(f"Creating start button at position: {self.screen_width // 2 - button_width // 2}, {last_y}")
+        mode_buttons_end_y = button_start_y + len(config.GAME_MODES) * (button_height + button_spacing)
+        last_y = min(mode_buttons_end_y + 20, self.screen_height - button_height - 20)
+        
+        print(f"Screen height: {self.screen_height}, Calculated button Y: {last_y}")
+        
         self.start_button = Button(
             self.screen_width // 2 - button_width // 2,
             last_y,
