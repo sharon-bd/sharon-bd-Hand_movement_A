@@ -76,6 +76,7 @@ class MainMenu:
         
         # Start game button (positioned below mode buttons)
         last_y = button_start_y + len(config.GAME_MODES) * (button_height + button_spacing) + 20
+        print(f"Creating start button at position: {self.screen_width // 2 - button_width // 2}, {last_y}")
         self.start_button = Button(
             self.screen_width // 2 - button_width // 2,
             last_y,
@@ -163,5 +164,8 @@ class MainMenu:
         desc_rect = desc_text.get_rect(center=(self.screen_width//2, 450))
         self.screen.blit(desc_text, desc_rect)
         
-        # Draw start button
+        # Ensure start button is drawn
         self.start_button.draw(self.screen)
+        
+        # Debug output - add this to check if the button is being created
+        print(f"Start button position: {self.start_button.rect}")
