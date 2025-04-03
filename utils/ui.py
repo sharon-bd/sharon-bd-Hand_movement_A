@@ -68,6 +68,12 @@ class GameUI:
         
         # Draw mute button
         self.draw_mute_button()
+        
+        # Add mute indicator at the top of the screen when muted
+        if self.sound_muted:
+            font_large = pygame.font.SysFont(None, 36)
+            mute_indicator = font_large.render("SOUND MUTED", True, (255, 0, 0))
+            self.screen.blit(mute_indicator, (325, 20))
     
     def draw_mute_button(self):
         """Draw mute/unmute button."""
@@ -105,11 +111,18 @@ class GameUI:
         font = pygame.font.SysFont(None, 24)
         mute_label = font.render("Sound", True, (0, 0, 0))
         self.screen.blit(mute_label, (self.mute_button_rect.left - 5, self.mute_button_rect.bottom + 5))
+        
+        # Draw muted status text
+        status_text = "MUTED" if self.sound_muted else "ON"
+        status_color = (255, 0, 0) if self.sound_muted else (0, 128, 0)
+        status_label = font.render(status_text, True, status_color)
+        self.screen.blit(status_label, (self.mute_button_rect.right + 10, self.mute_button_rect.top + 15))
     
     def check_mute_button_click(self, pos):
         """Check if mouse clicked on mute button and toggle mute state."""
         if self.mute_button_rect.collidepoint(pos):
             self.sound_muted = not self.sound_muted
+            print(f"UI mute button pressed - sound now {'muted' if self.sound_muted else 'unmuted'}")
             return True
         return False
 

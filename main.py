@@ -72,8 +72,17 @@ class HandGestureCarControl:
             pygame.quit()
             sys.exit(1)
         
-        # Initialize the selected camera
+        # Store selected camera index for potential reconnection
+        self.selected_camera = selected_camera
+        
+        # Initialize the selected camera with lower resolution for better performance
         self.cap = cv2.VideoCapture(selected_camera)
+        
+        # Set camera properties for more reliable operation
+        self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)  # Lower resolution width
+        self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480) # Lower resolution height
+        self.cap.set(cv2.CAP_PROP_FPS, 30)           # Standard frame rate
+        
         if not self.cap.isOpened():
             message = f"Failed to open camera {selected_camera}. Please try another camera."
             print(message)
@@ -160,7 +169,13 @@ class HandGestureCarControl:
                     if self.game_ui.check_mute_button_click(event.pos):
                         # Update sound manager's mute state to match UI
                         self.sound_manager.set_mute(self.game_ui.sound_muted)
-                        print(f"Sound {'muted' if self.game_ui.sound_muted else 'unmuted'}")
+                        print(f"Sound state changed in run_game: {'MUTED' if self.game_ui.sound_muted else 'UNMUTED'}")
+                        # Force sound update after mute state change
+                        self.sound_manager.update_engine_sound(
+                            self.car.speed, 
+                            False,  # Not braking
+                            False   # Not boosting
+                        )
         
         # If paused, show pause menu and don't update game state
         if self.paused:
@@ -181,8 +196,22 @@ class HandGestureCarControl:
         # Process hand detection
         ret, frame = self.cap.read()
         if not ret:
-            print("Error reading from camera")
-            return False
+            print("Error reading frame from camera, trying again...")
+            # Try to reinitialize the camera
+            self.cap.release()
+            time.sleep(1.0)  # Wait a bit longer
+            self.cap = cv2.VideoCapture(self.selected_camera)
+            
+            # Re-apply camera settings
+            self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+            self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+            self.cap.set(cv2.CAP_PROP_FPS, 30)
+            
+            if not self.cap.isOpened():
+                print("Cannot reopen camera, returning to menu...")
+                self.game_active = False
+                return True
+            return True  # Continue trying next frame
         
         # Flip the image horizontally to act as a mirror
         frame = cv2.flip(frame, 1)
@@ -211,8 +240,12 @@ class HandGestureCarControl:
         # Update score
         self.score += objects_passed * self.score_multiplier
         
-        # Update sound
-        self.sound_manager.update_engine_sound(self.car.speed, controls.get('braking', False), controls.get('boost', False))
+        # Update sound - make sure mute state is respected
+        self.sound_manager.update_engine_sound(
+            self.car.speed, 
+            controls.get('braking', False), 
+            controls.get('boost', False)
+        )
         
         # Draw game
         self.draw_game()
@@ -223,8 +256,8 @@ class HandGestureCarControl:
         # Limit to 60 FPS
         self.clock.tick(60)
         
-        return True
-    
+        return True  # Continue the game loop
+        
     def draw_game(self):
         """Draw the game screen."""
         # Clear screen

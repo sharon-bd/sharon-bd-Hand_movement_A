@@ -20,6 +20,9 @@ class SoundManager:
         
         # Track current engine sound state
         self.current_engine_state = "idle"
+        
+        # Track mute state
+        self.muted = False
     
     def create_engine_sounds(self):
         """Create synthesized engine sounds."""
@@ -219,6 +222,14 @@ class SoundManager:
     
     def update_engine_sound(self, speed, braking, boost):
         """Update engine sound based on car state."""
+        # Check mute state first - if muted, stop all sounds and return
+        if self.muted:
+            self.engine_idle.stop()
+            self.engine_revving.stop()
+            self.engine_boost.stop()
+            self.current_engine_state = "muted"
+            return
+        
         if boost:
             if self.current_engine_state != "boost":
                 self.engine_idle.stop()
@@ -243,11 +254,13 @@ class SoundManager:
     
     def play_collision(self):
         """Play collision sound effect."""
-        self.collision_sound.play()
+        if not self.muted:
+            self.collision_sound.play()
     
     def play_powerup(self):
         """Play power-up sound effect."""
-        self.powerup_sound.play()
+        if not self.muted:
+            self.powerup_sound.play()
     
     def play_game_over(self):
         """Play game over sound effect."""
@@ -256,8 +269,9 @@ class SoundManager:
         self.engine_revving.stop()
         self.engine_boost.stop()
         
-        # Play game over sound
-        self.game_over_sound.play()
+        # Play game over sound if not muted
+        if not self.muted:
+            self.game_over_sound.play()
     
     def reset(self):
         """Reset sound manager state."""
@@ -269,18 +283,30 @@ class SoundManager:
         # Reset current engine state
         self.current_engine_state = "idle"
         
-        # Restart idle sound
-        self.engine_idle.play(-1)
+        # Restart idle sound if not muted
+        if not self.muted:
+            self.engine_idle.play(-1)
     
     def set_mute(self, muted):
         """Set whether sound is muted."""
-        if muted and self.current_engine_state != "muted":
-            # Stop all sounds if muting
-            self.engine_idle.stop()
-            self.engine_revving.stop()
-            self.engine_boost.stop()
-            self.current_engine_state = "muted"
-        elif not muted and self.current_engine_state == "muted":
-            # Restart sound if unmuting
-            self.current_engine_state = "idle"
-            self.engine_idle.play(-1)
+        # Check if mute state is changing
+        if muted != self.muted:
+            self.muted = muted
+            print(f"Sound manager mute state changed to: {muted}")
+            
+            if muted:
+                # Stop all sounds if muting
+                pygame.mixer.stop()
+                self.current_engine_state = "muted"
+                print("All sounds stopped due to muting")
+            else:
+                # Restart idle sound if unmuting
+                self.current_engine_state = "idle"
+                self.engine_idle.play(-1)
+                print("Idle sound restarted after unmuting")
+                
+        return self.muted
+    
+    def is_muted(self):
+        """Check if sound is currently muted."""
+        return self.muted
