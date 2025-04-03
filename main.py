@@ -48,6 +48,10 @@ class HandGestureCarControl:
         self.game_active = False
         self.paused = False
         
+        # Frame skipping for performance
+        self.frame_skip = 0
+        self.max_frame_skip = 0  # 0 means process every frame, increase for better performance
+        
         self.show_loading_screen("Ready to play!")
         time.sleep(1)  # Show ready message briefly
     
@@ -79,9 +83,8 @@ class HandGestureCarControl:
         self.cap = cv2.VideoCapture(selected_camera)
         
         # Set camera properties for more reliable operation
-        self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)  # Lower resolution width
-        self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480) # Lower resolution height
-        self.cap.set(cv2.CAP_PROP_FPS, 30)           # Standard frame rate
+        self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)  
+        self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480) 
         
         if not self.cap.isOpened():
             message = f"Failed to open camera {selected_camera}. Please try another camera."
@@ -193,31 +196,44 @@ class HandGestureCarControl:
             self.game_over("Time Up!")
             return True
         
-        # Process hand detection
-        ret, frame = self.cap.read()
-        if not ret:
-            print("Error reading frame from camera, trying again...")
-            # Try to reinitialize the camera
-            self.cap.release()
-            time.sleep(1.0)  # Wait a bit longer
-            self.cap = cv2.VideoCapture(self.selected_camera)
-            
-            # Re-apply camera settings
-            self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-            self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-            self.cap.set(cv2.CAP_PROP_FPS, 30)
-            
-            if not self.cap.isOpened():
-                print("Cannot reopen camera, returning to menu...")
-                self.game_active = False
-                return True
-            return True  # Continue trying next frame
+        # Process hand detection with frame skipping
+        controls = {'speed': 0.5, 'direction': 0}  # Default controls
         
-        # Flip the image horizontally to act as a mirror
-        frame = cv2.flip(frame, 1)
-        
-        # Process hand gestures
-        controls, processed_frame = self.hand_detector.detect_gestures(frame)
+        if self.frame_skip <= 0:
+            # Process frame only if not skipping
+            ret, frame = self.cap.read()
+            if not ret:
+                print("Error reading frame from camera, trying again...")
+                # Try to reinitialize the camera
+                self.cap.release()
+                time.sleep(1.0)  # Wait a bit longer
+                self.cap = cv2.VideoCapture(self.selected_camera)
+                
+                # Re-apply camera settings
+                self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 320)  # Updated from 640
+                self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 240) # Updated from 480
+                self.cap.set(cv2.CAP_PROP_FPS, 60)           # Updated from 30
+                
+                if not self.cap.isOpened():
+                    print("Cannot reopen camera, returning to menu...")
+                    self.game_active = False
+                    return True
+                return True  # Continue trying next frame
+            
+            # Flip the image horizontally to act as a mirror
+            frame = cv2.flip(frame, 1)
+            
+            # Process hand gestures
+            controls, processed_frame = self.hand_detector.detect_gestures(frame)
+            
+            # Display hand detection frame
+            cv2.imshow("Hand Gesture Detection", processed_frame)
+            
+            # Reset frame skip counter
+            self.frame_skip = self.max_frame_skip
+        else:
+            # Skip frame processing but decrement counter
+            self.frame_skip -= 1
         
         # Ensure controls contains all necessary keys
         if 'speed' not in controls:
@@ -249,9 +265,6 @@ class HandGestureCarControl:
         
         # Draw game
         self.draw_game()
-        
-        # Draw hand detection frame in a separate window
-        cv2.imshow("Hand Gesture Detection", processed_frame)
         
         # Limit to 60 FPS
         self.clock.tick(60)

@@ -157,15 +157,15 @@ class HandGestureDetector:
         # Average speed over recent history (excluding current control)
         if not current_controls['braking'] and not current_controls['boost']:
             speed_values = [controls['speed'] for controls in self.gesture_history[:-1]]
-            avg_speed = sum(speed_values) / len(speed_values)
-            # Weighted average: 70% current + 30% history
-            current_controls['speed'] = 0.7 * current_controls['speed'] + 0.3 * avg_speed
+            avg_speed = sum(speed_values) / len(speed_values) if speed_values else 0
+            # Weighted average: 90% current + 10% history (changed from 70/30)
+            current_controls['speed'] = 0.9 * current_controls['speed'] + 0.1 * avg_speed
         
         # Smooth direction changes
         if not current_controls['braking']:
-            # Only change direction if the same direction is held for multiple frames
-            direction_values = [controls['direction'] for controls in self.gesture_history[-3:]]
-            if len(direction_values) >= 3:
+            # Only check the last 2 frames instead of 3 for faster direction response
+            direction_values = [controls['direction'] for controls in self.gesture_history[-2:]]
+            if len(direction_values) >= 2:
                 # If all recent directions are the same, use that direction
                 if all(d == direction_values[0] for d in direction_values):
                     current_controls['direction'] = direction_values[0]

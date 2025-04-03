@@ -11,15 +11,15 @@ class HandGestureDetector:
         self.hands = self.mp_hands.Hands(
             static_image_mode=False,
             max_num_hands=1,  # Track only one hand for simplicity
-            min_detection_confidence=0.5,
-            min_tracking_confidence=0.5
+            min_detection_confidence=0.4,  # Lowered from 0.5 to increase sensitivity
+            min_tracking_confidence=0.4    # Lowered from 0.5 to increase sensitivity
         )
         self.mp_draw = mp.solutions.drawing_utils
         self.mp_drawing_styles = mp.solutions.drawing_styles
         
         # Control state
         self.prev_steering = 0
-        self.steering_smoothing = 0.5  # Smoothing factor for steering
+        self.steering_smoothing = 0.3  # Reduced from 0.5 to give more weight to current movements
         
     def detect_gestures(self, frame):
         """

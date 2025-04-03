@@ -11,9 +11,9 @@ class Car:
         self.speed = 0
         self.direction = 0  # -1 = left, 0 = straight, 1 = right
         self.max_speed = 5
-        self.acceleration = 0.1
-        self.deceleration = 0.2
-        self.handling = 5  # How quickly the car can change direction
+        self.acceleration = 0.2     
+        self.deceleration = 0.3     
+        self.handling = 8           
         
         # Visual properties
         self.width = 30
@@ -33,6 +33,13 @@ class Car:
         
     def update(self, controls):
         """Update car state based on controls from hand gestures."""
+        # בדוק ומפה את המפתחות שחסרים
+        if 'speed' not in controls and 'throttle' in controls:
+            controls['speed'] = controls['throttle'] * self.max_speed
+        
+        if 'direction' not in controls and 'steering' in controls:
+            controls['direction'] = controls['steering']
+            
         # Add default value for direction if not present
         target_direction = controls.get('direction', 0)  # Default to 0 if 'direction' is missing
         
