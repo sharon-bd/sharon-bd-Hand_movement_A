@@ -1,5 +1,6 @@
 # main_menu.py - Game Main Menu
 import pygame
+import sys
 import config
 
 class Button:
@@ -52,8 +53,15 @@ class MainMenu:
         button_spacing = 20
         button_start_y = 200
         
+        # Create buttons for each game mode
         self.mode_buttons = {}
+        
+        # Debug print to check game modes
+        print("Available game modes:", list(config.GAME_MODES.keys()))
+        
+        # Create a button for each game mode
         for i, (mode_key, mode_info) in enumerate(config.GAME_MODES.items()):
+            print(f"Creating button for mode: {mode_key} - {mode_info['name']}")
             y_pos = button_start_y + i * (button_height + button_spacing)
             self.mode_buttons[mode_key] = Button(
                 self.screen_width // 2 - button_width // 2,
@@ -85,26 +93,33 @@ class MainMenu:
         self.running = True
         
         while self.running:
+            # Get mouse position and reset click state
             mouse_pos = pygame.mouse.get_pos()
             mouse_clicked = False
             
+            # Process events
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
                     return None  # Exit game
                 if event.type == pygame.MOUSEBUTTONDOWN:
                     if event.button == 1:  # Left click
                         mouse_clicked = True
+                if event.type == pygame.KEYDOWN:
+                    if event.key == pygame.K_ESCAPE:
+                        return None  # Exit to main menu
             
             # Handle button hovers and clicks
             for mode_key, button in self.mode_buttons.items():
                 button.check_hover(mouse_pos)
                 if button.is_clicked(mouse_pos, mouse_clicked):
                     self.selected_mode = mode_key
+                    print(f"Selected mode: {mode_key}")
             
             # Check if start button is clicked
             self.start_button.check_hover(mouse_pos)
             if self.start_button.is_clicked(mouse_pos, mouse_clicked):
                 self.running = False
+                print(f"Starting game with mode: {self.selected_mode}")
                 return self.selected_mode  # Return selected game mode
             
             # Draw menu

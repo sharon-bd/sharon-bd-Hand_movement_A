@@ -1,7 +1,7 @@
 # main.py - Main entry point for the Hand Gesture Car Control application
 
 import cv2
-import numpy as np  # Fixed the import statement
+import numpy as np
 import pygame
 import os
 import time
@@ -17,7 +17,6 @@ from game.car import Car
 from game.objects import RoadObjectManager
 from utils.sound import SoundManager
 from utils.ui import GameUI
-from game_ui import GameUI
 
 class HandGestureCarControl:
     def __init__(self):
@@ -25,7 +24,7 @@ class HandGestureCarControl:
         pygame.init()
         
         # Setup display
-        self.screen_width, self.screen_height = 1280, 720
+        self.screen_width, self.screen_height = 800, 600
         self.screen = pygame.display.set_mode((self.screen_width, self.screen_height))
         pygame.display.set_caption("Hand Gesture Car Control")
         
@@ -83,12 +82,6 @@ class HandGestureCarControl:
             sys.exit(1)
         
         print(f"Using camera index {selected_camera}")
-        
-        # Reinitialize pygame to ensure display is active
-        pygame.quit()
-        pygame.init()
-        self.screen = pygame.display.set_mode((self.screen_width, self.screen_height))
-        pygame.display.set_caption("Hand Gesture Car Control")
         
     def run(self):
         """Main application loop."""
@@ -197,22 +190,14 @@ class HandGestureCarControl:
         # Process hand gestures
         controls, processed_frame = self.hand_detector.detect_gestures(frame)
         
-        # Add the 'speed' key if it doesn't exist
+        # Ensure controls contains all necessary keys
         if 'speed' not in controls:
-            # Determine speed based on other controls
-            # This is a placeholder - adjust based on your actual control scheme
-            if 'boost' in controls and controls['boost']:
-                controls['speed'] = 1.0  # Full speed when boosting
-            elif 'braking' in controls and controls['braking']:
-                controls['speed'] = 0.0  # Zero speed when braking
-            else:
-                # Default speed, adjust as needed
-                controls['speed'] = 0.5  # Half speed
+            controls['speed'] = 0.5  # Default speed
         
-        # Ensure controls contains the 'direction' key before passing to car.update
         if 'direction' not in controls:
-            controls['direction'] = 0  # Add a default direction value
+            controls['direction'] = 0  # Default direction
         
+        # Update car with controls
         self.car.update(controls)
         
         # Update road objects
@@ -227,7 +212,7 @@ class HandGestureCarControl:
         self.score += objects_passed * self.score_multiplier
         
         # Update sound
-        self.sound_manager.update_engine_sound(self.car.speed, controls['braking'], controls['boost'])
+        self.sound_manager.update_engine_sound(self.car.speed, controls.get('braking', False), controls.get('boost', False))
         
         # Draw game
         self.draw_game()
@@ -352,13 +337,13 @@ class HandGestureCarControl:
             # Draw title
             font_title = pygame.font.SysFont(None, 60)
             title_text = font_title.render("Hand Gesture Car Control", True, (20, 20, 100))
-            title_rect = title_text.get_rect(center=(400, 200))
+            title_rect = title_text.get_rect(center=(self.screen_width//2, 200))
             self.screen.blit(title_text, title_rect)
             
             # Draw loading message
             font_message = pygame.font.SysFont(None, 36)
             message_text = font_message.render(message, True, (50, 50, 150))
-            message_rect = message_text.get_rect(center=(400, 300))
+            message_rect = message_text.get_rect(center=(self.screen_width//2, 300))
             self.screen.blit(message_text, message_rect)
             
             pygame.display.flip()
@@ -372,19 +357,19 @@ class HandGestureCarControl:
         # Draw error title
         font_title = pygame.font.SysFont(None, 60)
         title_text = font_title.render(title, True, (200, 0, 0))
-        title_rect = title_text.get_rect(center=(400, 200))
+        title_rect = title_text.get_rect(center=(self.screen_width//2, 200))
         self.screen.blit(title_text, title_rect)
         
         # Draw error message
         font_message = pygame.font.SysFont(None, 36)
         message_text = font_message.render(message, True, (100, 0, 0))
-        message_rect = message_text.get_rect(center=(400, 300))
+        message_rect = message_text.get_rect(center=(self.screen_width//2, 300))
         self.screen.blit(message_text, message_rect)
         
         # Draw exit instruction
         font_exit = pygame.font.SysFont(None, 30)
         exit_text = font_exit.render("Press any key to exit...", True, (100, 0, 0))
-        exit_rect = exit_text.get_rect(center=(400, 400))
+        exit_rect = exit_text.get_rect(center=(self.screen_width//2, 400))
         self.screen.blit(exit_text, exit_rect)
         
         pygame.display.flip()
@@ -396,81 +381,16 @@ class HandGestureCarControl:
                 if event.type == pygame.QUIT or event.type == pygame.KEYDOWN:
                     waiting = False
 
-    def find_available_camera(self):
-        """Find the first available camera."""
-        for index in range(10):  # Check first 10 camera indices
-            cap = cv2.VideoCapture(index)
-            if cap.isOpened():  # Added the missing dot before isOpened()
-                print(f"Camera index {index} is working")
-                cap.release()
-                return index
-            else:
-                print(f"Camera index {index} is not available")
-        
-        # If no camera found, handle gracefully
-        print("No cameras available. Please connect a camera and try again.")
-        pygame.quit()
-        sys.exit()
-
     def __del__(self):
         """Clean up resources when the object is destroyed."""
         if hasattr(self, 'cap') and self.cap is not None:
             self.cap.release()
 
-class RoadObjects:
-    # ...existing code...
-    
-    def update(self, car):
-        collision = False
-        objects_passed = 0
-        
-        # Your existing update logic here...
-        # ...existing code...
-        
-        # Before any return statement, ensure we return the required values
-        return collision, objects_passed
-
 def main():
-    # Initialize pygame
-    pygame.init()
-    
-    # Set up the display
-    screen_width, screen_height = 800, 600
-    screen = pygame.display.set_mode((screen_width, screen_height))
-    pygame.display.set_caption("Hand Movement Game")
-    
-    # Create game UI
-    game_ui = GameUI(screen, screen_width, screen_height)
-    
-    # Game states
-    game_running = False
-    
-    # Main game loop
-    while True:
-        screen.fill((240, 240, 240))  # Light gray background
-        
-        # Event handling
-        for event in pygame.event.get():
-            if event.type == pygame.QUIT:
-                pygame.quit()
-                sys.exit()
-            elif event.type == pygame.MOUSEBUTTONDOWN:
-                if event.button == 1:  # Left mouse button
-                    action = game_ui.check_button_click(event.pos)
-                    if action == 'run_game':
-                        game_running = True
-                        print("Game started!")
-        
-        # Draw UI elements
-        game_ui.draw_buttons()
-        
-        # If game is running, draw game elements
-        if game_running:
-            # Game logic here
-            pass
-        
-        pygame.display.flip()
-        pygame.time.Clock().tick(60)
+    # Create and run the game application
+    app = HandGestureCarControl()
+    app.run()
+    print("Application exited successfully")
 
 if __name__ == "__main__":
     main()
