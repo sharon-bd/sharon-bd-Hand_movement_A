@@ -18,6 +18,64 @@ from game.objects import RoadObjectManager
 from utils.sound import SoundManager
 from utils.ui import GameUI
 
+import mediapipe as mp
+from car_control import CarController
+
+# Initialize MediaPipe hands
+mp_hands = mp.solutions.hands
+hands = mp_hands.Hands(
+    static_image_mode=False,
+    max_num_hands=1,
+    min_detection_confidence=0.7,
+    min_tracking_confidence=0.5
+)
+mp_drawing = mp.solutions.drawing_utils
+
+# Initialize car controller
+car_controller = CarController()
+
+def detect_gesture(hand_landmarks):
+    """
+    Detect hand gesture based on landmarks
+    Returns the detected gesture and normalized hand position
+    """
+    # Extract key points
+    thumb_tip = hand_landmarks.landmark[mp_hands.HandLandmark.THUMB_TIP]
+    index_tip = hand_landmarks.landmark[mp_hands.HandLandmark.INDEX_FINGER_TIP]
+    middle_tip = hand_landmarks.landmark[mp_hands.HandLandmark.MIDDLE_FINGER_TIP]
+    ring_tip = hand_landmarks.landmark[mp_hands.HandLandmark.RING_FINGER_TIP]
+    pinky_tip = hand_landmarks.landmark[mp_hands.HandLandmark.PINKY_TIP]
+    
+    # Calculate distances to determine gesture
+    wrist = hand_landmarks.landmark[mp_hands.HandLandmark.WRIST]
+    palm_center = hand_landmarks.landmark[mp_hands.HandLandmark.MIDDLE_FINGER_MCP]
+    
+    # Get hand position for directional control
+    x_pos = palm_center.x
+    y_pos = palm_center.y
+    
+    # Detect open palm
+    if (thumb_tip.y < wrist.y and index_tip.y < wrist.y and 
+        middle_tip.y < wrist.y and ring_tip.y < wrist.y and pinky_tip.y < wrist.y):
+        return "open_palm", (x_pos, y_pos)
+    
+    # Detect fist
+    if (thumb_tip.y > palm_center.y and index_tip.y > palm_center.y and 
+        middle_tip.y > palm_center.y and ring_tip.y > palm_center.y and pinky_tip.y > palm_center.y):
+        return "fist", (x_pos, y_pos)
+    
+    # Detect thumbs up
+    if (thumb_tip.y < wrist.y and index_tip.y > thumb_tip.y and 
+        middle_tip.y > thumb_tip.y and ring_tip.y > thumb_tip.y and pinky_tip.y > thumb_tip.y):
+        return "thumbs_up", (x_pos, y_pos)
+    
+    # Detect pointing finger
+    if (index_tip.y < palm_center.y and middle_tip.y > palm_center.y and 
+        ring_tip.y > palm_center.y and pinky_tip.y > palm_center.y):
+        return "pointing", (x_pos, y_pos)
+    
+    return "unknown", (x_pos, y_pos)
+
 class HandGestureCarControl:
     def __init__(self):
         # Initialize pygame first

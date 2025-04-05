@@ -12,11 +12,30 @@ class HandGestureDetector:
             min_detection_confidence=min_detection_confidence
         )
         self.mp_draw = mp.solutions.drawing_utils
+        self.mp_drawing_styles = mp.solutions.drawing_styles
         
         # Store previous hand positions for motion detection
         self.prev_landmarks = None
         self.gesture_history = []  # Store recent gestures for smoothing
         self.history_size = 5
+        
+        # Control state with improved smoothing
+        self.prev_steering = 0
+        self.prev_throttle = 0
+        self.steering_smoothing = 0.6  # Higher value for smoother steering
+        self.throttle_smoothing = 0.5  # Throttle smoothing
+        
+        # Add state flags for gestures
+        self.braking_active = False
+        self.boost_active = False
+        
+        # Frame counter for stabilization
+        self.stable_frames_required = 3  # Number of frames required before changing status
+        self.brake_stable_count = 0
+        self.boost_stable_count = 0
+        
+        # Add class for marking relevant parts on screen
+        self.debug_mode = True
         
     def process_frame(self, frame):
         """Process a frame and detect hand landmarks."""
@@ -32,7 +51,11 @@ class HandGestureDetector:
         if self.results.multi_hand_landmarks:
             for hand_landmarks in self.results.multi_hand_landmarks:
                 self.mp_draw.draw_landmarks(
-                    frame, hand_landmarks, self.mp_hands.HAND_CONNECTIONS)
+                    frame, 
+                    hand_landmarks, 
+                    self.mp_hands.HAND_CONNECTIONS,
+                    self.mp_drawing_styles.get_default_hand_landmarks_style(),
+                    self.mp_drawing_styles.get_default_hand_connections_style())
         
         return frame
     
@@ -66,88 +89,241 @@ class HandGestureDetector:
         
         Returns:
             dict: Control values including:
-                - speed: float, 0.0 to 5.0
-                - direction: int, -1 (left), 0 (straight), 1 (right)
+                - steering: float, -1.0 (left) to 1.0 (right)
+                - throttle: float, 0.0 to 1.0
                 - braking: bool, True if brake gesture detected
                 - boost: bool, True if boost gesture detected
-                - gesture_name: str, name of the detected gesture
         """
         # Process frame and get landmarks
         processed_frame = self.process_frame(frame)
         landmarks_list = self.get_landmarks()
         
-        # Default control values
+        # Default control values with higher default values
         controls = {
-            'speed': 0.0,
-            'direction': 0,
+            'steering': 0.0,  # -1.0 (full left) to 1.0 (full right)
+            'throttle': 0.2,  # Default small throttle value so car moves
             'braking': False,
             'boost': False,
             'gesture_name': 'No hand detected'
         }
         
-        # If no hands detected, return default controls
+        # If no hands detected, update boost and brake status
         if not landmarks_list:
+            # If no hand detected, cancel boost and check if braking
+            self.boost_active = False
+            self.boost_stable_count = 0
+            
+            # Gradually reset braking
+            if self.brake_stable_count > 0:
+                self.brake_stable_count -= 1
+            else:
+                self.braking_active = False
+                
+            controls['braking'] = self.braking_active
             return controls, processed_frame
         
         # Use the first hand detected
         landmarks = landmarks_list[0]
         
-        # Check for different gestures
-        if self.is_fist_gesture(landmarks):
-            controls['braking'] = True
-            controls['gesture_name'] = 'Fist (Braking)'
-            self.draw_gesture_text(processed_frame, "BRAKING!", (255, 0, 0))
+        # Extract hand positions for improved control detection
+        wrist_pos = landmarks[0]
+        thumb_tip = landmarks[4]
+        index_tip = landmarks[8]
+        middle_tip = landmarks[12]
+        ring_tip = landmarks[16]
+        pinky_tip = landmarks[20]
+        
+        # Get finger base positions
+        index_mcp = landmarks[5]
+        middle_mcp = landmarks[9]
+        ring_mcp = landmarks[13]
+        pinky_mcp = landmarks[17]
+        
+        h, w, _ = self.frame_shape
+        
+        # Calculate steering based on hand angle
+        dx = middle_tip[0] - wrist_pos[0]
+        dy = middle_tip[1] - wrist_pos[1]
+        
+        # Calculate hand angle in degrees
+        hand_angle = np.degrees(np.arctan2(dy, dx))
+        
+        # Debug visualization for hand angle
+        if self.debug_mode:
+            # Convert landmarks to pixel coordinates
+            wrist_px = (wrist_pos[0], wrist_pos[1])
+            middle_px = (middle_tip[0], middle_tip[1])
             
-        elif self.is_stop_gesture(landmarks):
+            # Draw line showing hand orientation
+            cv2.line(processed_frame, wrist_px, middle_px, (0, 255, 255), 2)
+            
+            # Show angle text
+            cv2.putText(processed_frame, f"Angle: {hand_angle:.1f}", 
+                       (10, 280), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
+        
+        # Improved steering calculation - mapped to -1 to 1 range
+        raw_steering = 0.0
+        
+        # Hand angle ranges for improved steering control
+        if -45 <= hand_angle <= 45:  # Horizontal right hand
+            # Map -45..45 degrees to 0..1 (right turn)
+            raw_steering = hand_angle / 45.0
+        elif hand_angle > 135 or hand_angle < -135:  # Horizontal left hand
+            # Map 135..180/-180..-135 degrees to -1..0 (left turn)
+            if hand_angle > 0:
+                raw_steering = (hand_angle - 180) / 45.0
+            else:
+                raw_steering = (hand_angle + 180) / 45.0
+        else:
+            # Vertical hand (approximate straight)
+            raw_steering = 0.0
+        
+        # Apply non-linear mapping for finer control near center
+        raw_steering = np.sign(raw_steering) * (raw_steering ** 2)
+        
+        # Apply smoothing for more stable steering
+        steering = self.prev_steering * self.steering_smoothing + raw_steering * (1 - self.steering_smoothing)
+        self.prev_steering = steering
+        controls['steering'] = steering
+        
+        # Calculate throttle based on hand height (higher hand = more throttle)
+        # Convert y position to normalized value (1.0 - y gives higher throttle when hand is higher)
+        raw_throttle = 1.0 - (wrist_pos[1] / h)
+        
+        # Apply non-linear mapping for better control
+        raw_throttle = raw_throttle ** 1.5  # Exponential curve
+        
+        # Limit throttle to valid range and apply smoothing
+        raw_throttle = max(0.0, min(1.0, raw_throttle))
+        throttle = self.prev_throttle * self.throttle_smoothing + raw_throttle * (1 - self.throttle_smoothing)
+        self.prev_throttle = throttle
+        controls['throttle'] = throttle
+        
+        # Detect braking - check if fingers are curled (fist)
+        index_curled = index_tip[1] > index_mcp[1]
+        middle_curled = middle_tip[1] > middle_mcp[1]
+        ring_curled = ring_tip[1] > ring_mcp[1]
+        pinky_curled = pinky_tip[1] > pinky_mcp[1]
+        
+        # Calculate fist (all fingers curled)
+        fist_detected = index_curled and middle_curled and ring_curled and pinky_curled
+        
+        # Update brake stable counter
+        if fist_detected:
+            self.brake_stable_count = min(self.stable_frames_required, self.brake_stable_count + 1)
+            if self.brake_stable_count >= self.stable_frames_required:
+                self.braking_active = True
+                controls['gesture_name'] = 'Fist (Braking)'
+                self.draw_gesture_text(processed_frame, "BRAKING!", (255, 0, 0))
+        else:
+            # Gradually reduce stability counter
+            if self.brake_stable_count > 0:
+                self.brake_stable_count -= 1
+            else:
+                self.braking_active = False
+        
+        controls['braking'] = self.braking_active
+        
+        # Detect boost - check if thumb is up and others are curled
+        thumb_extended = thumb_tip[1] < wrist_pos[1]  # Thumb is higher than wrist
+        
+        boost_detected = thumb_extended and index_curled and middle_curled and ring_curled and pinky_curled
+        
+        # Update boost stable counter
+        if boost_detected:
+            self.boost_stable_count = min(self.stable_frames_required, self.boost_stable_count + 1)
+            if self.boost_stable_count >= self.stable_frames_required:
+                self.boost_active = True
+                controls['boost'] = True
+                controls['throttle'] = 1.0  # Maximum throttle
+                controls['gesture_name'] = 'Boost (Speed Up)'
+                self.draw_gesture_text(processed_frame, "BOOST ACTIVATED!", (0, 255, 0))
+        else:
+            # Gradually reduce stability counter
+            if self.boost_stable_count > 0:
+                self.boost_stable_count -= 1
+            else:
+                self.boost_active = False
+        
+        controls['boost'] = self.boost_active
+        
+        # If neither braking nor boosting, check for stop gesture
+        if not self.braking_active and not self.boost_active and self.is_stop_gesture(landmarks):
             controls['braking'] = True
             controls['gesture_name'] = 'Stop (Braking)'
             self.draw_gesture_text(processed_frame, "STOP GESTURE - BRAKING!", (255, 0, 0))
-            
-        elif self.is_boost_gesture(landmarks):
-            controls['boost'] = True
-            controls['speed'] = 5.0  # Maximum speed
-            controls['gesture_name'] = 'Boost (Speed Up)'
-            self.draw_gesture_text(processed_frame, "BOOST ACTIVATED!", (0, 255, 0))
-            
-        else:
-            # Normal driving controls based on hand position
-            thumb_tip = landmarks[4]
-            wrist = landmarks[0]
-            index_tip = landmarks[8]
-            pinky_tip = landmarks[20]
-            
-            # Calculate speed based on thumb position (Y-axis)
-            distance = wrist[1] - thumb_tip[1]  # Distance between thumb and wrist
-            speed_factor = distance / 80  
-            controls['speed'] = max(0, min(5, speed_factor))
-            
-            # Calculate direction based on hand tilt
-            direction_delta = index_tip[0] - pinky_tip[0]
-            if direction_delta > 30:
-                controls['direction'] = 1  # Right
-                direction_text = "Right"
-            elif direction_delta < -30:
-                controls['direction'] = -1  # Left
-                direction_text = "Left"
-            else:
-                controls['direction'] = 0  # Straight
-                direction_text = "Forward"
-            
-            controls['gesture_name'] = f'Driving ({direction_text})'
-            
-            # Display control values on frame
-            cv2.putText(processed_frame, f"Speed: {controls['speed']:.1f}", 
-                       (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
-            cv2.putText(processed_frame, f"Direction: {direction_text}", 
-                       (50, 100), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
         
-        # Add to gesture history for smoothing
-        self.gesture_history.append(controls)
-        if len(self.gesture_history) > self.history_size:
-            self.gesture_history.pop(0)
+        # Add visualization of controls
+        self._add_control_visualization(processed_frame, controls)
         
-        # Apply smoothing to controls
-        return self.smooth_controls(controls), processed_frame
+        return controls, processed_frame
+    
+    def _add_control_visualization(self, frame, controls):
+        """Add visual indicators of the current controls to the frame."""
+        h, w, _ = frame.shape
+        
+        # Draw background panel for controls
+        panel_height = 150
+        panel_y = h - panel_height - 10
+        cv2.rectangle(frame, (10, panel_y), (250, h - 10), (230, 230, 230), -1)
+        cv2.rectangle(frame, (10, panel_y), (250, h - 10), (0, 0, 0), 1)
+        
+        # Draw steering indicator
+        steering = controls['steering']
+        cv2.putText(frame, "Steering:", (20, panel_y + 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 0), 2)
+        
+        steer_center_x = 130
+        steer_width = 100
+        steer_y = panel_y + 30
+        
+        # Steering box
+        cv2.rectangle(frame, 
+                      (steer_center_x - steer_width//2, steer_y - 15), 
+                      (steer_center_x + steer_width//2, steer_y + 15), 
+                      (200, 200, 200), -1)
+        cv2.rectangle(frame, 
+                      (steer_center_x - steer_width//2, steer_y - 15), 
+                      (steer_center_x + steer_width//2, steer_y + 15), 
+                      (0, 0, 0), 1)
+        
+        # Steering indicator
+        steer_pos = int(steer_center_x + steering * steer_width/2)
+        cv2.circle(frame, (steer_pos, steer_y), 10, (0, 0, 255), -1)
+        
+        # Draw throttle indicator
+        throttle = controls['throttle']
+        cv2.putText(frame, "Throttle:", (20, panel_y + 70), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 0), 2)
+        
+        throttle_x = 130
+        throttle_height = 50
+        throttle_width = 30
+        throttle_y = panel_y + 50
+        
+        # Throttle box
+        cv2.rectangle(frame, 
+                     (throttle_x, throttle_y), 
+                     (throttle_x + throttle_width, throttle_y + throttle_height), 
+                     (200, 200, 200), -1)
+        cv2.rectangle(frame, 
+                     (throttle_x, throttle_y), 
+                     (throttle_x + throttle_width, throttle_y + throttle_height), 
+                     (0, 0, 0), 1)
+        
+        # Throttle fill
+        filled_height = int(throttle_height * throttle)
+        cv2.rectangle(frame, 
+                     (throttle_x, throttle_y + throttle_height - filled_height), 
+                     (throttle_x + throttle_width, throttle_y + throttle_height), 
+                     (0, 255, 0), -1)
+        
+        # Draw brake and boost indicators
+        brake_color = (0, 0, 255) if controls['braking'] else (200, 200, 200)
+        cv2.circle(frame, (50, panel_y + 120), 15, brake_color, -1)
+        cv2.putText(frame, "Brake", (30, panel_y + 140), cv2.FONT_HERSHEY_SIMPLEX, 0.6, brake_color, 2)
+        
+        boost_color = (255, 165, 0) if controls['boost'] else (200, 200, 200)
+        cv2.circle(frame, (120, panel_y + 120), 15, boost_color, -1)
+        cv2.putText(frame, "Boost", (100, panel_y + 140), cv2.FONT_HERSHEY_SIMPLEX, 0.6, boost_color, 2)
     
     def smooth_controls(self, current_controls):
         """Apply smoothing to controls to prevent jerky movements."""
