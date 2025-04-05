@@ -21,23 +21,27 @@ class CarController:
             self.socket = None
     
     def send_command(self, command):
-        """Send command to car with throttling to prevent command flooding"""
         current_time = time.time()
+        print(f"Attempting to send command: {command}")
         
         # Don't send duplicate commands in quick succession
         if self.last_command == command and current_time - self.last_command_time < self.command_timeout:
+            print(f"Ignoring duplicate command {command} (too soon)")
             return False
             
         try:
             if self.socket:
+                print(f"Sending UDP packet to {self.car_ip}:{self.car_port}")
                 self.socket.sendto(command.encode(), (self.car_ip, self.car_port))
                 self.last_command = command
                 self.last_command_time = current_time
+                print(f"Command {command} sent successfully")
                 return True
+            else:
+                print("Socket not initialized")
         except Exception as e:
-            print(f"Failed to send command to car: {e}")
-            # Try to reconnect
-            self.connect()
+            print(f"Error sending command: {e}")
+            self.connect()  # Try to reconnect
         return False
     
     def translate_gesture(self, gesture, hand_position=None):

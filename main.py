@@ -284,6 +284,27 @@ class HandGestureCarControl:
             # Process hand gestures
             controls, processed_frame = self.hand_detector.detect_gestures(frame)
             
+            if controls:
+                gesture_name = controls.get('gesture_name', 'unknown')
+                
+                # מיפוי פקודות מה-HandGestureDetector לפורמט של ה-CarController
+                if controls.get('braking', False):
+                    car_command = "STOP"
+                elif controls.get('boost', False):
+                    car_command = "FORWARD"  # או פקודה מואצת אחרת
+                else:
+                    steering = controls.get('steering', 0)
+                    if steering < -0.3:
+                        car_command = "LEFT"
+                    elif steering > 0.3:
+                        car_command = "RIGHT"
+                    else:
+                        car_command = "FORWARD"
+                
+                # שלח את הפקודה למכונית
+                command_sent = car_controller.send_command(car_command)
+                print(f"Command sent to car: {car_command}, Success: {command_sent}")
+            
             # Display hand detection frame
             cv2.imshow("Hand Gesture Detection", processed_frame)
             
@@ -300,6 +321,24 @@ class HandGestureCarControl:
         if 'direction' not in controls:
             controls['direction'] = 0  # Default direction
         
+        # מיפוי פקודות מה-HandGestureDetector לפורמט של ה-CarController
+        if controls.get('braking', False):
+            car_command = "STOP"
+        elif controls.get('boost', False):
+            car_command = "FORWARD"  # או פקודה מואצת אחרת
+        else:
+            steering = controls.get('steering', 0)
+            if steering < -0.3:
+                car_command = "LEFT"
+            elif steering > 0.3:
+                car_command = "RIGHT"
+            else:
+                car_command = "FORWARD"
+
+        # שלח את הפקודה למכונית
+        command_sent = car_controller.send_command(car_command)
+        print(f"Command sent to car: {car_command}, Success: {command_sent}")
+
         # Update car with controls
         self.car.update(controls)
         
