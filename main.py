@@ -31,8 +31,8 @@ hands = mp_hands.Hands(
 )
 mp_drawing = mp.solutions.drawing_utils
 
-# Initialize car controller
-car_controller = CarController()
+# Initialize car controller in simulation mode
+car_controller = CarController(simulation_mode=True)
 
 def detect_gesture(hand_landmarks):
     """

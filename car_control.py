@@ -2,14 +2,19 @@ import socket
 import time
 
 class CarController:
-    def __init__(self, car_ip="192.168.4.1", car_port=100):
+    def __init__(self, car_ip="192.168.4.1", car_port=100, simulation_mode=True):
         self.car_ip = car_ip
         self.car_port = car_port
         self.socket = None
         self.last_command = None
         self.command_timeout = 0.2  # Minimum time between commands (seconds)
         self.last_command_time = 0
-        self.connect()
+        self.simulation_mode = simulation_mode
+        
+        if not simulation_mode:
+            self.connect()
+        else:
+            print("Car controller running in simulation mode - commands will be logged but not sent")
         
     def connect(self):
         """Establish connection to the car"""
@@ -22,13 +27,21 @@ class CarController:
     
     def send_command(self, command):
         current_time = time.time()
-        print(f"Attempting to send command: {command}")
         
         # Don't send duplicate commands in quick succession
         if self.last_command == command and current_time - self.last_command_time < self.command_timeout:
-            print(f"Ignoring duplicate command {command} (too soon)")
+            if not self.simulation_mode:
+                print(f"Ignoring duplicate command {command} (too soon)")
             return False
+        
+        # If in simulation mode, just log the command and return success
+        if self.simulation_mode:
+            # Store command for future reference but don't try to send it
+            self.last_command = command
+            self.last_command_time = current_time
+            return True
             
+        # Only try to send if not in simulation mode
         try:
             if self.socket:
                 print(f"Sending UDP packet to {self.car_ip}:{self.car_port}")
@@ -71,6 +84,6 @@ class CarController:
     
     def close(self):
         """Close the connection"""
-        if self.socket:
+        if self.socket and not self.simulation_mode:
             self.socket.close()
             self.socket = None
