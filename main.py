@@ -11,7 +11,7 @@ from pygame.locals import *
 # Import our application modules
 import config
 from main_menu import MainMenu
-from hand_detector.gestures import HandGestureDetector
+from hand_detector.gestures import EnhancedHandGestureDetector  # Update path as needed
 from utils.camera import find_available_cameras, select_camera
 from game.car import Car
 from game.objects import RoadObjectManager
@@ -19,7 +19,7 @@ from utils.sound import SoundManager
 from utils.ui import GameUI
 
 import mediapipe as mp
-from car_control import CarController
+from car_control import ImprovedCarController  # Update path as needed
 
 # Initialize MediaPipe hands
 mp_hands = mp.solutions.hands
@@ -32,7 +32,7 @@ hands = mp_hands.Hands(
 mp_drawing = mp.solutions.drawing_utils
 
 # Initialize car controller in simulation mode
-car_controller = CarController(simulation_mode=True)
+car_controller = ImprovedCarController(simulation_mode=True)
 
 def detect_gesture(hand_landmarks):
     """
@@ -93,9 +93,13 @@ class HandGestureCarControl:
         # Now show loading screen after display is initialized
         self.show_loading_screen("Initializing hand tracking...")
         
-        # Initialize hand gesture detector
-        self.show_loading_screen("Initializing hand tracking...")
-        self.hand_detector = HandGestureDetector()
+        # Initialize enhanced hand gesture detector
+        self.hand_detector = EnhancedHandGestureDetector()
+        
+        # Initialize improved car controller
+        self.car_controller = ImprovedCarController(
+            simulation_mode=True  # Set to False for real car control
+        )
         
         # Initialize sound manager
         self.show_loading_screen("Loading sounds...")
