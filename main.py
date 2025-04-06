@@ -11,70 +11,15 @@ from pygame.locals import *
 # Import our application modules
 import config
 from main_menu import MainMenu
-from hand_detector.gestures import EnhancedHandGestureDetector  # Update path as needed
+from hand_detector.improved_hand_gesture_detector import EnhancedHandGestureDetector  # Make sure this path is correct
 from utils.camera import find_available_cameras, select_camera
 from game.car import Car
 from game.objects import RoadObjectManager
 from utils.sound import SoundManager
 from utils.ui import GameUI
 
-import mediapipe as mp
-from car_control import ImprovedCarController  # Update path as needed
-
-# Initialize MediaPipe hands
-mp_hands = mp.solutions.hands
-hands = mp_hands.Hands(
-    static_image_mode=False,
-    max_num_hands=1,
-    min_detection_confidence=0.7,
-    min_tracking_confidence=0.5
-)
-mp_drawing = mp.solutions.drawing_utils
-
-# Initialize car controller in simulation mode
-car_controller = ImprovedCarController(simulation_mode=True)
-
-def detect_gesture(hand_landmarks):
-    """
-    Detect hand gesture based on landmarks
-    Returns the detected gesture and normalized hand position
-    """
-    # Extract key points
-    thumb_tip = hand_landmarks.landmark[mp_hands.HandLandmark.THUMB_TIP]
-    index_tip = hand_landmarks.landmark[mp_hands.HandLandmark.INDEX_FINGER_TIP]
-    middle_tip = hand_landmarks.landmark[mp_hands.HandLandmark.MIDDLE_FINGER_TIP]
-    ring_tip = hand_landmarks.landmark[mp_hands.HandLandmark.RING_FINGER_TIP]
-    pinky_tip = hand_landmarks.landmark[mp_hands.HandLandmark.PINKY_TIP]
-    
-    # Calculate distances to determine gesture
-    wrist = hand_landmarks.landmark[mp_hands.HandLandmark.WRIST]
-    palm_center = hand_landmarks.landmark[mp_hands.HandLandmark.MIDDLE_FINGER_MCP]
-    
-    # Get hand position for directional control
-    x_pos = palm_center.x
-    y_pos = palm_center.y
-    
-    # Detect open palm
-    if (thumb_tip.y < wrist.y and index_tip.y < wrist.y and 
-        middle_tip.y < wrist.y and ring_tip.y < wrist.y and pinky_tip.y < wrist.y):
-        return "open_palm", (x_pos, y_pos)
-    
-    # Detect fist
-    if (thumb_tip.y > palm_center.y and index_tip.y > palm_center.y and 
-        middle_tip.y > palm_center.y and ring_tip.y > palm_center.y and pinky_tip.y > palm_center.y):
-        return "fist", (x_pos, y_pos)
-    
-    # Detect thumbs up
-    if (thumb_tip.y < wrist.y and index_tip.y > thumb_tip.y and 
-        middle_tip.y > thumb_tip.y and ring_tip.y > thumb_tip.y and pinky_tip.y > thumb_tip.y):
-        return "thumbs_up", (x_pos, y_pos)
-    
-    # Detect pointing finger
-    if (index_tip.y < palm_center.y and middle_tip.y > palm_center.y and 
-        ring_tip.y > palm_center.y and pinky_tip.y > palm_center.y):
-        return "pointing", (x_pos, y_pos)
-    
-    return "unknown", (x_pos, y_pos)
+# Import car controller
+from car_control import ImprovedCarController  # Make sure this path is correct
 
 class HandGestureCarControl:
     def __init__(self):
@@ -259,7 +204,7 @@ class HandGestureCarControl:
             return True
         
         # Process hand detection with frame skipping
-        controls = {'speed': 0.5, 'direction': 0}  # Default controls
+        controls = {'steering': 0.0, 'throttle': 0.0}  # Default controls
         
         if self.frame_skip <= 0:
             # Process frame only if not skipping
@@ -272,9 +217,8 @@ class HandGestureCarControl:
                 self.cap = cv2.VideoCapture(self.selected_camera)
                 
                 # Re-apply camera settings
-                self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 320)  # Updated from 640
-                self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 240) # Updated from 480
-                self.cap.set(cv2.CAP_PROP_FPS, 60)           # Updated from 30
+                self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+                self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
                 
                 if not self.cap.isOpened():
                     print("Cannot reopen camera, returning to menu...")
@@ -285,32 +229,23 @@ class HandGestureCarControl:
             # Flip the image horizontally to act as a mirror
             frame = cv2.flip(frame, 1)
             
-            # Process hand gestures
-            controls, processed_frame = self.hand_detector.detect_gestures(frame)
-            
-            if controls:
-                gesture_name = controls.get('gesture_name', 'unknown')
+            try:
+                # Process hand gestures with improved detection
+                controls, processed_frame = self.hand_detector.detect_gestures(frame)
                 
-                # מיפוי פקודות מה-HandGestureDetector לפורמט של ה-CarController
-                if controls.get('braking', False):
-                    car_command = "STOP"
-                elif controls.get('boost', False):
-                    car_command = "FORWARD"  # או פקודה מואצת אחרת
-                else:
-                    steering = controls.get('steering', 0)
-                    if steering < -0.3:
-                        car_command = "LEFT"
-                    elif steering > 0.3:
-                        car_command = "RIGHT"
-                    else:
-                        car_command = "FORWARD"
+                # Get a stable command (helps reduce jitter)
+                stable_command = self.hand_detector.get_stable_command()
                 
-                # שלח את הפקודה למכונית
-                command_sent = car_controller.send_command(car_command)
-                print(f"Command sent to car: {car_command}, Success: {command_sent}")
-            
-            # Display hand detection frame
-            cv2.imshow("Hand Gesture Detection", processed_frame)
+                if stable_command:
+                    # Send the command to the car with improved command handling
+                    command_sent = self.car_controller.send_command(stable_command)
+                    print(f"Command sent to car: {stable_command}, Success: {command_sent}")
+                
+                # Display hand detection frame
+                cv2.imshow("Hand Gesture Detection", processed_frame)
+            except Exception as e:
+                print(f"Error in hand gesture detection: {e}")
+                cv2.imshow("Hand Gesture Detection", frame)  # Show original frame on error
             
             # Reset frame skip counter
             self.frame_skip = self.max_frame_skip
@@ -318,30 +253,16 @@ class HandGestureCarControl:
             # Skip frame processing but decrement counter
             self.frame_skip -= 1
         
-        # Ensure controls contains all necessary keys
-        if 'speed' not in controls:
+        # Ensure controls contains all necessary keys for game mechanics
+        if 'speed' not in controls and 'throttle' in controls:
+            controls['speed'] = controls['throttle']  # Map throttle to speed for car update
+        elif 'speed' not in controls:
             controls['speed'] = 0.5  # Default speed
         
-        if 'direction' not in controls:
+        if 'direction' not in controls and 'steering' in controls:
+            controls['direction'] = controls['steering']  # Map steering to direction for car update
+        elif 'direction' not in controls:
             controls['direction'] = 0  # Default direction
-        
-        # מיפוי פקודות מה-HandGestureDetector לפורמט של ה-CarController
-        if controls.get('braking', False):
-            car_command = "STOP"
-        elif controls.get('boost', False):
-            car_command = "FORWARD"  # או פקודה מואצת אחרת
-        else:
-            steering = controls.get('steering', 0)
-            if steering < -0.3:
-                car_command = "LEFT"
-            elif steering > 0.3:
-                car_command = "RIGHT"
-            else:
-                car_command = "FORWARD"
-
-        # שלח את הפקודה למכונית
-        command_sent = car_controller.send_command(car_command)
-        print(f"Command sent to car: {car_command}, Success: {command_sent}")
 
         # Update car with controls
         self.car.update(controls)
@@ -367,6 +288,11 @@ class HandGestureCarControl:
         # Draw game
         self.draw_game()
         
+        # Exit if ESC key is pressed in the OpenCV window
+        if cv2.waitKey(1) == 27:
+            self.game_active = False
+            return True
+            
         # Limit to 60 FPS
         self.clock.tick(60)
         
@@ -528,16 +454,75 @@ class HandGestureCarControl:
                 if event.type == pygame.QUIT or event.type == pygame.KEYDOWN:
                     waiting = False
 
+    def troubleshoot_connectivity(self):
+        """Diagnose and fix connectivity issues with the car."""
+        import socket
+        import subprocess
+        import platform
+        
+        print("======= Connectivity Troubleshooting =======")
+        
+        # Check network configuration
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            s.connect(('10.255.255.255', 1))
+            local_ip = s.getsockname()[0]
+        except Exception:
+            local_ip = '127.0.0.1'
+        finally:
+            s.close()
+        
+        print(f"Local IP: {local_ip}")
+        network_ok = local_ip.startswith("192.168.4.")
+        
+        if not network_ok:
+            print("WARNING: Your computer appears to be on a different subnet than the car.")
+            print("The car typically uses 192.168.4.x network.")
+        
+        # Try to ping the car
+        car_ip = "192.168.4.1"  # Default car IP
+        param = '-n' if platform.system().lower() == 'windows' else '-c'
+        command = ['ping', param, '1', car_ip]
+        
+        try:
+            output = subprocess.check_output(command).decode('utf-8')
+            print(f"Ping result: {output}")
+            ping_ok = "time=" in output or "time<" in output
+        except subprocess.CalledProcessError:
+            print(f"Failed to ping car at {car_ip}.")
+            ping_ok = False
+        
+        # Provide recommendations based on results
+        print("\n------- Recommendations -------")
+        if not network_ok:
+            print("1. Connect to the car's WiFi network")
+            print("2. Verify your WiFi connection settings")
+        if not ping_ok:
+            print("1. Check if the car is powered on")
+            print("2. Verify the car's IP address")
+            print("3. Restart the car's control system")
+        
+        return network_ok and ping_ok
+
     def __del__(self):
         """Clean up resources when the object is destroyed."""
         if hasattr(self, 'cap') and self.cap is not None:
             self.cap.release()
 
 def main():
-    # Create and run the game application
-    app = HandGestureCarControl()
-    app.run()
-    print("Application exited successfully")
+    """Main entry point for the application."""
+    try:
+        # Create and run the game application
+        app = HandGestureCarControl()
+        app.run()
+        print("Application exited successfully")
+    except Exception as e:
+        print(f"Error in main application: {e}")
+        # Make sure CV windows are closed on error
+        cv2.destroyAllWindows()
+        pygame.quit()
+        import traceback
+        traceback.print_exc()
 
 if __name__ == "__main__":
     main()
