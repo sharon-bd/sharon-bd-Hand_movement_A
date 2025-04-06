@@ -21,6 +21,13 @@ from utils.ui import GameUI
 # Import car controller
 from car_control import ImprovedCarController  # Make sure this path is correct
 
+# Add this import at the top
+from debug_utils import MovementDebugger
+
+# Add these constants at the beginning of the file after imports
+MOVEMENT_THRESHOLD = 30  # Minimum movement distance to register as a movement
+GESTURE_COOLDOWN = 15    # Frames to wait before detecting another gesture
+
 class HandGestureCarControl:
     def __init__(self):
         # Initialize pygame first
@@ -157,6 +164,14 @@ class HandGestureCarControl:
     
     def run_game(self):
         """Run the main game loop."""
+        # Add these variables to track movement
+        prev_hand_position = None
+        gesture_cooldown = 0
+        movement_history = []
+
+        # Initialize the debugger
+        movement_debugger = MovementDebugger()
+
         # Process events
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
