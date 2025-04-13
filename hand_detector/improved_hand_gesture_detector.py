@@ -207,8 +207,28 @@ class EnhancedHandGestureDetector:
         # Detect braking gesture (fist)
         brake_gesture = fist_detected and not thumb_extended
         
+        # Call the new function to detect stop sign gesture
+        stop_sign_gesture = self._detect_stop_sign_gesture(landmark_points, frame)
+        
         # Set control commands based on detected gestures
-        if boost_gesture:
+        if stop_sign_gesture:
+            controls['gesture_name'] = 'Stop (Traffic Sign)'
+            controls['braking'] = True  # Emergency stop with stop sign gesture
+            controls['throttle'] = 0.0
+            controls['boost'] = False
+            self._update_command_stability("STOP")
+            
+            # Add prominent visualization of stop state
+            cv2.putText(
+                frame,
+                "STOP SIGN DETECTED",
+                (frame.shape[1]//2 - 150, 80),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                1,
+                (0, 0, 255),
+                2
+            )
+        elif boost_gesture:
             controls['gesture_name'] = 'Boost'
             controls['boost'] = True
             controls['throttle'] = 1.0  # Full throttle when boosting
@@ -241,6 +261,93 @@ class EnhancedHandGestureDetector:
                    (frame.shape[1]//2 - 100, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
                 
         return controls
+    
+    # ================== Improved STOP gesture detection ==================
+    def _detect_stop_sign_gesture(self, landmark_points, frame):
+        """
+        Detect STOP sign gesture (open hand like a stop sign).
+        Returns True if the gesture is detected, False otherwise.
+        """
+        h, w, _ = frame.shape
+        
+        # Key points
+        wrist = landmark_points[0]
+        thumb_tip = landmark_points[4]
+        index_tip = landmark_points[8]
+        middle_tip = landmark_points[12]
+        ring_tip = landmark_points[16]
+        pinky_tip = landmark_points[20]
+        
+        # Finger bases (joints)
+        thumb_mcp = landmark_points[2]
+        index_mcp = landmark_points[5]
+        middle_mcp = landmark_points[9]
+        ring_mcp = landmark_points[13]
+        pinky_mcp = landmark_points[17]
+        
+        # 1. Check that all fingers are extended (not curled)
+        # A finger is considered extended if the tip is further from the wrist than the joint
+        # Calculate vectors from wrist to joint and from wrist to fingertip
+        
+        # 1.1 For index, middle, ring and pinky fingers
+        finger_extended = []
+        
+        for tip, mcp in [(index_tip, index_mcp), 
+                         (middle_tip, middle_mcp), 
+                         (ring_tip, ring_mcp), 
+                         (pinky_tip, pinky_mcp)]:
+            # Distance from wrist to fingertip
+            dist_tip = np.sqrt((tip[0] - wrist[0])**2 + (tip[1] - wrist[1])**2)
+            # Distance from wrist to joint
+            dist_mcp = np.sqrt((mcp[0] - wrist[0])**2 + (mcp[1] - wrist[1])**2)
+            # Finger is extended if tip is further than joint
+            finger_extended.append(dist_tip > dist_mcp * 1.2)  # Requires finger to be extended at least 20% more than joint
+        
+        # 1.2 For thumb (special case)
+        thumb_dist_tip = np.sqrt((thumb_tip[0] - wrist[0])**2 + (thumb_tip[1] - wrist[1])**2)
+        thumb_dist_mcp = np.sqrt((thumb_mcp[0] - wrist[0])**2 + (thumb_mcp[1] - wrist[1])**2)
+        thumb_extended = thumb_dist_tip > thumb_dist_mcp
+        
+        # 2. Check that the hand is open and raised
+        all_fingers_extended = all(finger_extended) and thumb_extended
+        
+        # 3. Check that fingers are spread at a reasonable distance from each other
+        # Calculate distances between adjacent fingers
+        finger_tips = [index_tip, middle_tip, ring_tip, pinky_tip]
+        finger_spacings = []
+        
+        for i in range(len(finger_tips) - 1):
+            spacing = np.sqrt((finger_tips[i][0] - finger_tips[i+1][0])**2 + 
+                             (finger_tips[i][1] - finger_tips[i+1][1])**2)
+            finger_spacings.append(spacing)
+        
+        # Fingers should be at similar distances from each other
+        if len(finger_spacings) > 1:
+            min_spacing = min(finger_spacings)
+            max_spacing = max(finger_spacings)
+            fingers_evenly_spaced = (max_spacing < min_spacing * 2.0)  # Spacings roughly equal
+        else:
+            fingers_evenly_spaced = True
+        
+        # Add debug info if needed
+        if self.debug_mode:
+            cv2.putText(frame, f"All Fingers Extended: {all_fingers_extended}", 
+                       (10, 240), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 0), 1)
+            cv2.putText(frame, f"Fingers Spaced: {fingers_evenly_spaced}", 
+                       (10, 260), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 0), 1)
+            
+            # Add info about each finger's extension
+            fingers = ["Index", "Middle", "Ring", "Pinky", "Thumb"]
+            extensions = finger_extended + [thumb_extended]
+            for i, (finger, extended) in enumerate(zip(fingers, extensions)):
+                color = (0, 255, 0) if extended else (0, 0, 255)
+                cv2.putText(frame, f"{finger}: {extended}", 
+                           (w - 150, 30 + i*20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
+        
+        # STOP gesture is detected if all fingers are extended and reasonably spaced
+        stop_gesture_detected = all_fingers_extended and fingers_evenly_spaced
+        
+        return stop_gesture_detected
         
     def _update_command_stability(self, command):
         """Track command stability to avoid jitter in command sending."""
